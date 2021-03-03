@@ -369,7 +369,7 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	s.status = bladerf_set_bias_tee(&s.tx.dev, tx, "true");
+	s.status = bladerf_set_bias_tee(&s.tx.dev, "tx", "true");
 	if (s.status != 0) {
 		fprintf(stderr, "Failed to enbale biastee: %s\n", bladerf_strerror(s.status));
 		goto out;
