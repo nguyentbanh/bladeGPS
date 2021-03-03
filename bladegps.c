@@ -368,8 +368,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Failed to open device: %s\n", bladerf_strerror(s.status));
 		goto out;
 	}
-
-	s.status = bladerf_set_bias_tee(s.tx.dev, tx_channel, "true");
+  
+  bool enable = true;
+	s.status = bladerf_set_bias_tee(s.tx.dev, tx_channel, enable);
 	if (s.status != 0) {
 		fprintf(stderr, "Failed to enbale biastee: %s\n", bladerf_strerror(s.status));
 		goto out;
