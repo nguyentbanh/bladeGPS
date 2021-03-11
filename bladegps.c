@@ -196,7 +196,6 @@ int main(int argc, char *argv[])
 {
 	sim_t s;
 	char *devstr = NULL;
-	int xb_board=0;
 
 	int result;
 	double duration;
@@ -216,7 +215,7 @@ int main(int argc, char *argv[])
 	s.finished = false;
 
 	s.opt.navfile[0] = 0;
-	s.opt.almfile[0] = 0;
+	//s.opt.almfile[0] = 0;
 	s.opt.umfile[0] = 0;
 	s.opt.g0.week = -1;
 	s.opt.g0.sec = 0.0;
@@ -240,8 +239,8 @@ int main(int argc, char *argv[])
 			strcpy(s.opt.navfile, optarg);
 			break;
 		case 'y':
-			strcpy(s.opt.almfile, optarg);
-			break;
+		  strcpy(s.opt.almfile, optarg);
+		  break;
 		case 'u':
 			strcpy(s.opt.umfile, optarg);
 			s.opt.nmeaGGA = FALSE;
@@ -302,13 +301,10 @@ int main(int argc, char *argv[])
 			}
 			s.opt.iduration = (int)(duration*10.0+0.5);
 			break;
-		case 'x':
-			xb_board=atoi(optarg);
-			break;
 		case 'a':
 			tx_gain = atoi(optarg);
-			if (tx_gain>0)
-				tx_gain *= -1;
+//if (tx_gain>0)
+//tx_gain *= -1;
 			break;
 		case 'i':
 			s.opt.interactive = TRUE;
@@ -345,7 +341,7 @@ int main(int argc, char *argv[])
 	init_sim(&s);
 
 	// Allocate TX buffer to hold each block of samples to transmit.
-	s.tx.buffer = (int16_t *)malloc(SAMPLES_PER_BUFFER * sizeof(int16_t) * 2); // for 16-bit I and Q samples
+	s.tx.buffer = (int16_t *)malloc(SAMPLES_PER_BUFFER * sizeof(int16_t) * 10); // for 16-bit I and Q samples
 	
 	if (s.tx.buffer == NULL) {
 		fprintf(stderr, "Failed to allocate TX buffer.\n");
@@ -353,7 +349,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Allocate FIFOs to hold 0.1 seconds of I/Q samples each.
-	s.fifo = (int16_t *)malloc(FIFO_LENGTH * sizeof(int16_t) * 2); // for 16-bit I and Q samples
+	s.fifo = (int16_t *)malloc(FIFO_LENGTH * sizeof(int16_t) * 10); // for 16-bit I and Q samples
 
 	if (s.fifo == NULL) {
 		fprintf(stderr, "Failed to allocate I/Q sample buffer.\n");
@@ -373,46 +369,6 @@ int main(int argc, char *argv[])
 	s.status = bladerf_set_bias_tee(s.tx.dev, tx_channel, enable);
 	if (s.status != 0) {
 		fprintf(stderr, "Failed to enbale biastee: %s\n", bladerf_strerror(s.status));
-		goto out;
-	}
-
-	if(xb_board == 200) {
-		printf("Initializing XB200 expansion board...\n");
-
-		s.status = bladerf_expansion_attach(s.tx.dev, BLADERF_XB_200);
-		if (s.status != 0) {
-			fprintf(stderr, "Failed to enable XB200: %s\n", bladerf_strerror(s.status));
-			goto out;
-		}
-
-		s.status = bladerf_xb200_set_filterbank(s.tx.dev, tx_channel, BLADERF_XB200_CUSTOM);
-		if (s.status != 0) {
-			fprintf(stderr, "Failed to set XB200 TX filterbank: %s\n", bladerf_strerror(s.status));
-			goto out;
-		}
-
-		s.status = bladerf_xb200_set_path(s.tx.dev, tx_channel, BLADERF_XB200_BYPASS);
-		if (s.status != 0) {
-			fprintf(stderr, "Failed to enable TX bypass path on XB200: %s\n", bladerf_strerror(s.status));
-			goto out;
-		}
-
-		//For sake of completeness set also RX path to a known good state.
-		s.status = bladerf_xb200_set_filterbank(s.tx.dev, BLADERF_CHANNEL_RX(0), BLADERF_XB200_CUSTOM);
-		if (s.status != 0) {
-			fprintf(stderr, "Failed to set XB200 RX filterbank: %s\n", bladerf_strerror(s.status));
-			goto out;
-		}
-
-		s.status = bladerf_xb200_set_path(s.tx.dev, BLADERF_CHANNEL_RX(0), BLADERF_XB200_BYPASS);
-		if (s.status != 0) {
-			fprintf(stderr, "Failed to enable RX bypass path on XB200: %s\n", bladerf_strerror(s.status));
-			goto out;
-		}
-	}
-
-	if(xb_board == 300) {
-		fprintf(stderr, "XB300 does not support transmitting on GPS frequency\n");
 		goto out;
 	}
 
