@@ -211,24 +211,23 @@ void date2gps(const datetime_t *t, gpstime_t *g)
 	return;
 }
 
+/* Update from gps-sdr-sim 3/9/21  */
+
 void gps2date(const gpstime_t *g, datetime_t *t)
 {
-	long c,d,e,f;
-	double gsec = round(g->sec);
-
 	// Convert Julian day number to calendar date
-	c = (long)(7.0*(double)g->week + floor(gsec/86400.0)+2444245.0) + 1537;
-	d = (long)(((double)c-122.1)/365.25);
-	e = 365*d + d/4;
-	f = (long)((double)(c-e)/30.6001 );
+	int c = (int)(7*g->week + floor(g->sec/86400.0)+2444245.0) + 1537;
+	int d = (int)((c-122.1)/365.25);
+	int e = 365*d + d/4;
+	int f = (int)((c-e)/30.6001);
 
 	t->d = c - e - (int)(30.6001*f);
 	t->m = f - 1 - 12*(f/14);
-	t->y  = d - 4715 - ((7 + t->m)/10);
+	t->y = d - 4715 - ((7 + t->m)/10);
 
-	t->hh = ((int)(gsec/3600.0))%24;
-	t->mm = ((int)(gsec/60.0))%60;
-	t->sec = gsec - 60.0*floor(gsec/60.0);
+	t->hh = ((int)(g->sec/3600.0))%24;
+	t->mm = ((int)(g->sec/60.0))%60;
+	t->sec = g->sec - 60.0*floor(g->sec/60.0);
 
 	return;
 }
@@ -502,6 +501,7 @@ void satpos(ephem_t eph, gpstime_t g, double *pos, double *vel, double *clk)
  *  \param[in] eph Ephemeris of given SV
  *  \param[out] sbf Array of five sub-frames, 10 long words each
  */
+/* Updated at 3/9/21  */
 
 #define EMPTY_WORD 0xaaaaaaaaUL
 
@@ -1067,6 +1067,8 @@ int readAlmanac(almanac_t alm[MAX_SAT], const char *fname)
  *  \param[in] fname File name of the RINEX file
  *  \returns Number of sets of ephemerides in the file
  */
+
+/* Updated 3/9/21  */
 int readRinexNavAll(ephem_t eph[][MAX_SAT], ionoutc_t *ionoutc, const char *fname)
 {
 	FILE *fp;
@@ -1366,6 +1368,11 @@ int readRinexNavAll(ephem_t eph[][MAX_SAT], ionoutc_t *ionoutc, const char *fnam
 		replaceExpDesignator(tmp, 19);
 		eph[ieph][sv].idot = atof(tmp);
 
+		strncpy(tmp, str+22, 19);
+		tmp[19] = 0;
+		replaceExpDesignator(tmp, 19);
+		eph[ieph][sv].codeL2 = (int)atof(tmp);
+
 		strncpy(tmp, str+41, 19);
 		tmp[19] = 0;
 		replaceExpDesignator(tmp, 19);
@@ -1374,6 +1381,13 @@ int readRinexNavAll(ephem_t eph[][MAX_SAT], ionoutc_t *ionoutc, const char *fnam
 		// BROADCAST ORBIT - 6
 		if (NULL==fgets(str, MAX_CHAR, fp))
 			break;
+
+		strncpy(tmp, str+22, 19);
+		tmp[19] = 0;
+		replaceExpDesignator(tmp, 19);
+		eph[ieph][sv].svhlth = (int)atof(tmp);
+		if ((eph[ieph][sv].svhlth>0) && (eph[ieph][sv].svhlth<32))
+			eph[ieph][sv].svhlth += 32; // Set MSB to 1
 
 		strncpy(tmp, str+41, 19);
 		tmp[19] = 0;
@@ -1406,6 +1420,8 @@ int readRinexNavAll(ephem_t eph[][MAX_SAT], ionoutc_t *ionoutc, const char *fnam
 
 	return(ieph);
 }
+
+/* Added 3/9/21  */
 
 double ionosphericDelay(const ionoutc_t *ionoutc, gpstime_t g, double *llh, double *azel)
 {
@@ -1483,7 +1499,6 @@ double ionosphericDelay(const ionoutc_t *ionoutc, gpstime_t g, double *llh, doub
 
 	return (iono_delay);
 }
-
 /*! \brief Compute range between a satellite and the receiver
  *  \param[out] rho The computed range
  *  \param[in] eph Ephemeris data of the satellite
@@ -1707,6 +1722,7 @@ int readNmeaGGA(double **xyz, const char *filename)
 	return (numd);
 }
 
+/* Updated 3/9/21  */
 int generateNavMsg(gpstime_t g, channel_t *chan, int init)
 {
 	int iwrd,isbf;
@@ -1723,14 +1739,13 @@ int generateNavMsg(gpstime_t g, channel_t *chan, int init)
 	wn = (unsigned long)(g0.week%1024);
 	tow = ((unsigned long)g0.sec)/6UL;
 
-	// Initialize the subframe 5
-	if (init==1)
+	if (init==1) // Initialize subframe 5
 	{
 		prevwrd = 0UL;
 
 		for (iwrd=0; iwrd<N_DWRD_SBF; iwrd++)
 		{
-			sbfwrd = chan->sbf[4 + chan->ipage * 2][iwrd];
+			sbfwrd = chan->sbf[4][iwrd];
 
 			// Add TOW-count message into HOW
 			if (iwrd==1)
@@ -1744,7 +1759,7 @@ int generateNavMsg(gpstime_t g, channel_t *chan, int init)
 			prevwrd = chan->dwrd[iwrd];
 		}
 	}
-	else
+	else // Save subframe 5
 	{
 		for (iwrd=0; iwrd<N_DWRD_SBF; iwrd++)
 		{
@@ -1756,25 +1771,19 @@ int generateNavMsg(gpstime_t g, channel_t *chan, int init)
 		// Sanity check
 		if (((chan->dwrd[1])&(0x1FFFFUL<<13)) != ((tow&0x1FFFFUL)<<13))
 		{
-			printf("\nWARNING: Invalid TOW in subframe 5.\n");
+			fprintf(stderr, "\nWARNING: Invalid TOW in subframe 5.\n");
 			return(0);
 		}
 		*/
 	}
 
-	// Generate subframe words
 	for (isbf=0; isbf<N_SBF; isbf++)
 	{
 		tow++;
 
 		for (iwrd=0; iwrd<N_DWRD_SBF; iwrd++)
 		{
-			if (isbf < 3) // Subframes 1-3
-				sbfwrd = chan->sbf[isbf][iwrd];
-			else if (isbf == 3) // Subframe 4
-				sbfwrd = chan->sbf[3 + chan->ipage * 2][iwrd];
-			else // Subframe 5 
-				sbfwrd = chan->sbf[4 + chan->ipage * 2][iwrd];
+			sbfwrd = chan->sbf[isbf][iwrd];
 
 			// Add transmission week number to Subframe 1
 			if ((isbf==0)&&(iwrd==2))
@@ -1792,11 +1801,6 @@ int generateNavMsg(gpstime_t g, channel_t *chan, int init)
 			prevwrd = chan->dwrd[(isbf+1)*N_DWRD_SBF+iwrd];
 		}
 	}
-
-	// Move to the next pages
-	chan->ipage++;
-	if (chan->ipage >= 25)
-		chan->ipage = 0;
 
 	return(1);
 }
@@ -1824,6 +1828,7 @@ int checkSatVisibility(ephem_t eph, gpstime_t g, double *xyz, double elvMask, do
 	return (0); // Invisible
 }
 
+/* Updated 3/9/21  */
 int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, almanac_t *alm, gpstime_t grx, double *xyz, double elvMask)
 {
 	int nsat=0;
@@ -1835,19 +1840,6 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, almanac_t 
 	double r_ref,r_xyz;
 	double phase_ini;
 
-	int ipage = 0; // Initial page count
-
-	// Find current page number
-	for (i = 0; i < MAX_CHAN; i++)
-	{
-		if (chan[i].prn != 0)
-		{
-			ipage = chan[i].ipage;
-			break;
-		}
-	}
-
-	// Allocate channel
 	for (sv=0; sv<MAX_SAT; sv++)
 	{
 		if(checkSatVisibility(eph[sv], grx, xyz, 0.0, azel)==1)
@@ -1863,7 +1855,6 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, almanac_t 
 					{
 						// Initialize channel
 						chan[i].prn = sv+1;
-						chan[i].ipage = ipage;
 						chan[i].azel[0] = azel[0];
 						chan[i].azel[1] = azel[1];
 
@@ -1887,9 +1878,12 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, almanac_t 
 						r_ref = rho.range;
 
 						phase_ini = (2.0*r_ref - r_xyz)/LAMBDA_L1;
+#ifdef FLOAT_CARR_PHASE
+						chan[i].carr_phase = phase_ini - floor(phase_ini);
+#else
 						phase_ini -= floor(phase_ini);
-						chan[i].carr_phase = (unsigned int)(512 * 65536.0 * phase_ini);
-
+						chan[i].carr_phase = (unsigned int)(512.0 * 65536.0 * phase_ini);
+#endif
 						// Done.
 						break;
 					}
@@ -1912,7 +1906,6 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, almanac_t 
 
 	return(nsat);
 }
-
 #ifndef _WIN32
 void changemode(int dir)
 {
@@ -2032,7 +2025,7 @@ void *gps_task(void *arg)
 
 	strcpy(navfile, s->opt.navfile);
 	strcpy(umfile, s->opt.umfile);
-	strcpy(almfile, s->opt.almfile);
+	//strcpy(almfile, s->opt.almfile);
 	
 	staticLocationMode = s->opt.staticLocationMode;
 	llh[0] = s->opt.llh[0];
@@ -2058,8 +2051,8 @@ void *gps_task(void *arg)
 
 	ionoutc.enable = s->opt.iono_enable;
 
-	gmin = g0;
-	gmax = g0;
+	// gmin = g0;
+	// gmax = g0;
 	
 	////////////////////////////////////////////////////////////
 	// Receiver position
@@ -2177,6 +2170,16 @@ void *gps_task(void *arg)
 			break;
 		}
 	}
+/* Added 3/9/21  */
+	gmax.sec = 0;
+	gmax.week = 0;
+	tmax.sec = 0;
+	tmax.mm = 0;
+	tmax.hh = 0;
+	tmax.d = 0;
+	tmax.m = 0;
+	tmax.y = 0;
+/*  */
 
 	for (sv=0; sv<MAX_SAT; sv++)
 	{
@@ -2280,7 +2283,6 @@ void *gps_task(void *arg)
 	////////////////////////////////////////////////////////////
 	// Read almanac
 	////////////////////////////////////////////////////////////
-
 	nalm = readAlmanac(alm, almfile);
 
 	if (almfile[0] != 0 && nalm == -1)
@@ -2313,7 +2315,6 @@ void *gps_task(void *arg)
 
 		}
 	}
-
 	////////////////////////////////////////////////////////////
 	// Baseband signal buffer and output file
 	////////////////////////////////////////////////////////////
@@ -2344,6 +2345,7 @@ void *gps_task(void *arg)
 
 	// Allocate visible satellites
 	allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[0], elvmask);
+	//allocateChannel(chan, eph[ieph], ionoutc, grx, xyz[0], elvmask);
 
 	for(i=0; i<MAX_CHAN; i++)
 	{
@@ -2464,14 +2466,23 @@ void *gps_task(void *arg)
 				sv = chan[i].prn-1;
 
 				// Current pseudorange
-				computeRange(&rho, eph[ieph][sv], &ionoutc, grx, xyz[iumd]);
+        // Update 3/9/21
+				if (!staticLocationMode)
+					computeRange(&rho, eph[ieph][sv], &ionoutc, grx, xyz[iumd]);
+				else
+					computeRange(&rho, eph[ieph][sv], &ionoutc, grx, xyz[0]);
+        //
+
 				chan[i].azel[0] = rho.azel[0];
 				chan[i].azel[1] = rho.azel[1];
 
 				// Update code phase and data bit counters
 				computeCodePhase(&chan[i], rho, 0.1);
-				chan[i].carr_phasestep = (int)(512 * 65536.0 * chan[i].f_carr * delt);
-
+//
+#ifndef FLOAT_CARR_PHASE
+				chan[i].carr_phasestep = (int)round(512.0 * 65536.0 * chan[i].f_carr * delt);
+#endif
+//
 				// Path loss
 				path_loss = 20200000.0/rho.d;
 
@@ -2480,10 +2491,10 @@ void *gps_task(void *arg)
 				ant_gain = ant_pat[ibs];
 
 				// Signal gain
-				if (s->opt.path_loss_enable == TRUE)
+				//if (s->opt.path_loss_enable == TRUE)
 					gain[i] = (int)(path_loss*ant_gain*128.0); // scaled by 2^7
-				else
-					gain[i] = 128; // hold the power level constant
+				//else
+					//gain[i] = 128; // hold the power level constant
 			}
 		}
 
@@ -2496,7 +2507,13 @@ void *gps_task(void *arg)
 			{
 				if (chan[i].prn>0)
 				{
-					iTable = (chan[i].carr_phase >> 16) & 511;
+					//iTable = (chan[i].carr_phase >> 16) & 511;
+
+#ifdef FLOAT_CARR_PHASE
+					iTable = (int)floor(chan[i].carr_phase*512.0);
+#else
+					iTable = (chan[i].carr_phase >> 16) & 0x1ff; // 9-bit index
+#endif
 
 					ip = chan[i].dataBit * chan[i].codeCA * cosTable512[iTable] * gain[i];
 					qp = chan[i].dataBit * chan[i].codeCA * sinTable512[iTable] * gain[i];
@@ -2538,7 +2555,18 @@ void *gps_task(void *arg)
 					chan[i].codeCA = chan[i].ca[(int)chan[i].code_phase]*2-1;
 
 					// Update carrier phase
+					//chan[i].carr_phase += chan[i].carr_phasestep;
+
+#ifdef FLOAT_CARR_PHASE
+					chan[i].carr_phase += chan[i].f_carr * delt;
+
+					if (chan[i].carr_phase >= 1.0)
+						chan[i].carr_phase -= 1.0;
+					else if (chan[i].carr_phase<0.0)
+						chan[i].carr_phase += 1.0;
+#else
 					chan[i].carr_phase += chan[i].carr_phasestep;
+#endif
 				}
 			}
 
@@ -2607,6 +2635,7 @@ void *gps_task(void *arg)
 							// Generate new subframes if allocated
 							if (chan[i].prn!=0) 
 								eph2sbf(eph[ieph][chan[i].prn-1], ionoutc, alm, chan[i].sbf);
+								//eph2sbf(eph[ieph][chan[i].prn-1], ionoutc, chan[i].sbf);
 						}
 					}
 						
@@ -2615,7 +2644,12 @@ void *gps_task(void *arg)
 			}
 
 			// Update channel allocation
-			allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[iumd], elvmask);
+			//allocateChannel(chan, eph[ieph], ionoutc, alm, grx, xyz[iumd], elvmask);
+
+			if (!staticLocationMode)
+				allocateChannel(chan, eph[ieph], ionoutc,alm, grx, xyz[iumd], elvmask);
+			else
+				allocateChannel(chan, eph[ieph], ionoutc,alm, grx, xyz[0], elvmask);
 
 			// Show ditails about simulated channels
 			if (verb)
